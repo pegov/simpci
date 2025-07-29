@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 )
@@ -48,10 +51,10 @@ func main() {
 
 	g, gCtx := errgroup.WithContext(ctx)
 	l, err := net.Listen("tcp", "127.0.0.1:9095")
-	tcpL := l.(*net.TCPListener)
 	if err != nil {
 		log.Fatalf("net listen: %v", err)
 	}
+	tcpL := l.(*net.TCPListener)
 	defer l.Close()
 	g.Go(func() error {
 		return server(gCtx, tcpL)
@@ -66,6 +69,7 @@ func main() {
 		l.Close()
 	}()
 
+	log.Println("wait")
 	if err := g.Wait(); err != nil {
 		log.Println(err)
 	}
@@ -84,6 +88,44 @@ func server(ctx context.Context, l *net.TCPListener) error {
 				return errors.New("tcp error")
 			}
 		}
-		defer conn.Close()
+
+		log.Println("handling conn")
+		// TODO: wait for it
+		go func() {
+			if err := handleConn(ctx, conn); err != nil {
+				log.Println("handle conn err:", err)
+			}
+		}()
 	}
+}
+
+func handleConn(ctx context.Context, conn net.Conn) error {
+	defer conn.Close()
+
+	buf := make([]byte, 1024)
+	for {
+		if err := conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			return fmt.Errorf("set read deadline: %w", err)
+		}
+
+		n, err := conn.Read(buf)
+		if err != nil {
+			if err == io.EOF {
+				log.Println("conn was closed")
+				break
+			}
+			if !errors.Is(err, io.EOF) {
+				select {
+				case <-ctx.Done():
+					return nil
+				default:
+					return fmt.Errorf("conn read: %w", err)
+				}
+			}
+		}
+
+		log.Println("buf:", string(buf[:n]))
+	}
+
+	return nil
 }
