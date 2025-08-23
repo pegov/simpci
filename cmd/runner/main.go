@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
@@ -25,12 +26,40 @@ func main() {
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
-		return dockerRun(ctx)
+		if err := dockerBuild(ctx); err != nil {
+			return fmt.Errorf("docker build: %w", err)
+		}
+		if err := dockerRun(ctx); err != nil {
+			return fmt.Errorf("docker run: %w", err)
+		}
+		return nil
 	})
 
 	if err := g.Wait(); err != nil {
 		log.Println("g wait err:", err)
 	}
+}
+
+func dockerBuild(ctx context.Context) error {
+	cmd := exec.CommandContext(
+		ctx,
+		"docker",
+		"build",
+		"-t", "simpci-template",
+		"-f", "./docker/template.Dockerfile",
+		".",
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Fatalf("failed to build docker template: %v", err)
+	}
+	if !cmd.ProcessState.Success() {
+		log.Fatalf("docker command's exit code != 0")
+	}
+
+	return nil
 }
 
 func dockerRun(ctx context.Context) error {
