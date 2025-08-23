@@ -9,6 +9,8 @@ import (
 	"os/signal"
 
 	"golang.org/x/sync/errgroup"
+
+	"github.com/pegov/simpci/internal/runner"
 )
 
 func main() {
@@ -23,13 +25,23 @@ func main() {
 		cancel()
 	}()
 
+	target := "test"
+	state := runner.NewState()
+	state.AddTarget(target, "./docker/template.sh")
+
+	path, ok := state.Script(target)
+	if !ok {
+		fmt.Println("target not found:", target)
+		os.Exit(1)
+	}
+
 	g, ctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		if err := dockerBuild(ctx); err != nil {
 			return fmt.Errorf("docker build: %w", err)
 		}
-		if err := dockerRun(ctx); err != nil {
+		if err := dockerRun(ctx, path); err != nil {
 			return fmt.Errorf("docker run: %w", err)
 		}
 		return nil
@@ -38,6 +50,10 @@ func main() {
 	if err := g.Wait(); err != nil {
 		log.Println("g wait err:", err)
 	}
+}
+
+type State struct {
+	M map[string]string
 }
 
 func dockerBuild(ctx context.Context) error {
@@ -62,14 +78,14 @@ func dockerBuild(ctx context.Context) error {
 	return nil
 }
 
-func dockerRun(ctx context.Context) error {
+func dockerRun(ctx context.Context, entrypointPath string) error {
 	cmd := exec.CommandContext(
 		ctx,
 		"docker",
 		"run",
 		"--rm",
 		"--pull=never",
-		"-v", "./docker/:/tmp/",
+		"-v", fmt.Sprintf("%s:/tmp/entrypoint.sh", entrypointPath),
 		"simpci-template",
 	)
 	cmd.Stdout = os.Stdout

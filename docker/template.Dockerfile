@@ -1,3 +1,5 @@
 FROM docker:28.3-cli
 
-CMD ["/tmp/template.sh"]
+RUN touch /tmp/entrypoint.sh
+
+CMD ["/tmp/entrypoint.sh"]
